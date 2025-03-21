@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.0.1/dist/tailwind.min.css" rel="stylesheet">
+  <title>Lista de Eventos e Usuários</title>
+  <style>
+    .hidden {
+      display: none;
+    }
+    .scrollable {
+      max-height: 120px;
+      overflow-y: auto;
+    }
+  </style>
+</head>
+<body class="bg-gray-100 p-5">
+  <div class="container mx-auto">
+    <h1 class="text-2xl font-semibold text-gray-800 mb-6">Lista de Eventos</h1>
+    <form method="post" action="/atualizar" id="form-update">
+      <table class="min-w-full table-auto leading-normal shadow-lg rounded-lg overflow-hidden">
+        <thead class="bg-gray-800 text-white">
+          <tr>
+            <th class="px-5 py-3 border-b-2 border-gray-300 text-left text-xs font-semibold uppercase tracking-wider">
+              Evento
+            </th>
+            <th class="px-5 py-3 border-b-2 border-gray-300 text-left text-xs font-semibold uppercase tracking-wider">
+              Descrição
+            </th>
+          </tr>
+        </thead>
+        <tbody class="bg-white">
+          {% for evento in eventos %}
+          <tr class="cursor-pointer" onclick="toggleDropdown('dropdown-{{ evento.IntrnalKey }}')">
+            <td class="px-5 py-2 border-b border-gray-300 text-sm">
+              {{ evento.IntrnalKey }}
+            </td>
+            <td class="px-5 py-2 border-b border-gray-300 text-sm">
+              {{ evento.QName }}
+            </td>
+          </tr>
+          <tr id="dropdown-{{ evento.IntrnalKey }}" class="hidden">
+            <td colspan="2" class="p-4">
+              <input type="text" onkeyup="filterUsers(this, '{{ evento.IntrnalKey }}')" placeholder="Filtrar por nome..." class="mb-2 p-1 border rounded w-full">
+              
+              <div class="grid grid-cols-2 gap-4">
+                <div class=" flex flex-col max-h-64 overflow-auto scrollable">
+                        {% for usuario in usuarios %}
+                        <div>
+                            <label class="inline-flex items-center user-item">
+                            <!-- Adicionamos o data-original para indicar o estado inicial -->
+                            <input type="checkbox" 
+                                    class="form-checkbox text-indigo-600 user-checkbox"
+                                    data-event="{{ evento.IntrnalKey }}" 
+                                    data-user="{{ usuario.UserCode }}" 
+                                    data-email="{{ usuario.email }}"
+                                    data-original="{% if evento.IntrnalKey|string in selecoes and usuario.email in selecoes[evento.IntrnalKey|string] %}1{% else %}0{% endif %}"
+                                    {% if evento.IntrnalKey|string in selecoes and usuario.email in selecoes[evento.IntrnalKey|string] %}checked{% endif %}>
+                            <span class="ml-2">{{ usuario.UserName }} | ({{ usuario.email }})</span>
+                            </label>
+                        </div>
+                        {% endfor %}
+                    </div>
+                <div>
+                  <!-- Área para o Cabeçalho -->
+                    <div class="mb-2">
+                        <label for="cabecalho-{{ evento.IntrnalKey }}">Cabeçalho:</label>
+                        <textarea name="cabecalho-{{ evento.IntrnalKey }}" id="cabecalho-{{ evento.IntrnalKey }}" 
+                                placeholder="Digite o cabeçalho..." 
+                                class="w-full h-8 p-2 border rounded shadow-sm resize-none" 
+                                style="vertical-align: top;">{{ eventos_mensagens[evento.IntrnalKey|string]['Cabecalho'] if evento.IntrnalKey|string in eventos_mensagens else '' }}</textarea>
+                    </div>
+                    
+                    <!-- Área para a Mensagem -->
+                    <div class="mb-2">
+                        <label for="mensagem-{{ evento.IntrnalKey }}">Mensagem:</label>
+                        <textarea name="mensagem-{{ evento.IntrnalKey }}" id="mensagem-{{ evento.IntrnalKey }}" 
+                                placeholder="Digite algo..." 
+                                class="w-full h-32 p-2 border rounded shadow-sm resize-none" 
+                                style="vertical-align: top;">{{ eventos_mensagens[evento.IntrnalKey|string]['Mensagem'] if evento.IntrnalKey|string in eventos_mensagens else '' }}</textarea>
+                    </div>
+                    
+                    <!-- Área para o Rodapé -->
+                    <div class="mb-2">
+                        <label for="rodape-{{ evento.IntrnalKey }}">Rodapé:</label>
+                        <textarea name="rodape-{{ evento.IntrnalKey }}" id="rodape-{{ evento.IntrnalKey }}" 
+                                placeholder="Digite o rodapé..." 
+                                class="w-full h-8 p-2 border rounded shadow-sm resize-none" 
+                                style="vertical-align: top;">{{ eventos_mensagens[evento.IntrnalKey|string]['Rodape'] if evento.IntrnalKey|string in eventos_mensagens else '' }}</textarea>
+                    </div>
+  
+
+                    <div class="grid grid-cols-1 gap-4">
+                        <label class="inline-flex items-center user-item">
+                            <input  type="checkbox" 
+                                    class="form-checkbox text-indigo-600" 
+                                    name="notificar-criador-{{ evento.IntrnalKey }}"
+                                    {% if evento.IntrnalKey|string in eventos_mensagens and eventos_mensagens[evento.IntrnalKey|string]["NotificarCriador"] == "S" %}checked{% endif %}>
+                                    <span class="ml-2">Notificar Criador do Documento</span>
+                            </label>
+                    
+                        <label class="inline-flex items-center user-item">
+                            <input type="checkbox" 
+                                class="form-checkbox text-indigo-600"
+                                name="notificar-aprovador-{{ evento.IntrnalKey }}"
+                                {% if evento.IntrnalKey|string in eventos_mensagens and eventos_mensagens[evento.IntrnalKey|string]["NotificarAprovador"] == "S" %}checked{% endif %}>
+                                <span class="ml-2">Notificar Aprovador do Documento</span>
+                            </label>
+                    </div>
+                </div> 
+              </div>
+
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <button type="submit" class="mt-4 bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+        Atualizar CSV
+      </button>
+    </form>
+    <br>
+    <a href="/logout" class="text-blue-500 hover:text-blue-800">Logout</a>
+  </div>
+
+  <script>
+    function toggleDropdown(dropdownId) {
+      var currentDropdown = document.getElementById(dropdownId);
+      if (currentDropdown.style.display === 'table-row') {
+        currentDropdown.style.display = 'none';
+        return;
+      }
+      var dropdowns = document.querySelectorAll(".hidden");
+      dropdowns.forEach(function(dropdown) {
+        dropdown.style.display = 'none';
+      });
+      currentDropdown.style.display = 'table-row';
+    }
+
+    function filterUsers(inputElement, eventId) {
+      var filter = inputElement.value.toUpperCase();
+      var labels = document.getElementById('dropdown-' + eventId).querySelectorAll('.user-item');
+      labels.forEach(function(label) {
+        var text = label.textContent || label.innerText;
+        if (text.toUpperCase().indexOf(filter) > -1) {
+          label.style.display = '';
+        } else {
+          label.style.display = 'none';
+        }
+      });
+    }
+
+    // No submit, geramos inputs hidden apenas para os checkboxes que tiveram alteração
+    document.getElementById("form-update").addEventListener("submit", function(e) {
+      // Remove inputs hidden anteriores, se houver
+      var existingHidden = document.querySelectorAll(".hidden-dest");
+      existingHidden.forEach(function(el) {
+        el.remove();
+      });
+      
+      // Para cada checkbox, compara o estado atual com o estado original
+      document.querySelectorAll(".user-checkbox").forEach(function(checkbox) {
+        var original = checkbox.dataset.original; // "1" ou "0"
+        var current = checkbox.checked ? "1" : "0";
+        if (original !== current) {  // Apenas se houver alteração
+          var evento = checkbox.dataset.event;
+          var user = checkbox.dataset.user;
+          var email = checkbox.dataset.email;
+          var hiddenInput = document.createElement("input");
+          hiddenInput.type = "hidden";
+          hiddenInput.name = "destinatarios[]";
+          hiddenInput.value = evento + "|" + user + "|" + email + "|" + current;
+          hiddenInput.classList.add("hidden-dest");
+          e.target.appendChild(hiddenInput);
+        }
+      });
+    });
+  </script>
+</body>
+</html>
