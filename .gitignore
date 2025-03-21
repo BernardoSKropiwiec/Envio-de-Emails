@@ -1,0 +1,35 @@
+# 🐍 Ignorar arquivos do Python
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+*.sqlite3
+instance/
+*.db
+*.log
+
+# 📦 Ignorar ambientes virtuais
+.venv/
+venv/
+
+# 🚀 Ignorar arquivos de dependências do Node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# 🔥 Ignorar arquivos de configuração do Tailwind CSS
+tailwind.config.js
+
+# 🛠️ Ignorar arquivos de configuração do sistema
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# 🔑 Ignorar credenciais e configurações locais
+.env
+*.secret
+config.json
+
+# 📊 Ignorar arquivos CSV (se forem dados temporários)
+*.csv
