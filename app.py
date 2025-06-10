@@ -1,5 +1,8 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 import conexao
+from conexao import hana_connection
+from repositories import UsuarioRepository, EventoRepository
+
 
 app = Flask(__name__)
 app.secret_key = 'sua_chave_secreta_aqui'
@@ -28,16 +31,12 @@ def exibir_usuarios():
     if "session_id" not in session:
         return redirect(url_for("login"))
     
-    session_id = session["session_id"]
-    usuarios = conexao.busca_todos_usuarios(session_id)
-    eventos = conexao.busca_eventos()
-
-
-    # Leitura dos registros via banco de dados
-    selecoes = conexao.le_usuarios_selecionados()
-    eventos_mensagens = conexao.le_eventos_mensagens()
+    with hana_connection() as conn:
+        usuarios = UsuarioRepository(conn).all_users()
+        selecoes = UsuarioRepository(conn).selected_users()
+        eventos  = EventoRepository(conn).all_eventos()
     
-    return render_template("index.html", usuarios=usuarios, eventos=eventos, selecoes=selecoes, eventos_mensagens=eventos_mensagens)
+    return render_template("index.html", usuarios=usuarios, eventos=eventos, selecoes=selecoes)
 
 @app.route("/atualizar", methods=["POST"])
 def atualizar_registros():
@@ -65,9 +64,11 @@ def atualizar_registros():
         rodape = request.form.get(f"rodape-{evento_id}", "")
         criador_key = f"notificar-criador-{evento_id}"
         aprovador_key = f"notificar-aprovador-{evento_id}"
+        gestor_key = f"notificar-gestor-{evento_id}"
         notificarCriador = "S" if criador_key in request.form else "N"
         notificarAprovador = "S" if aprovador_key in request.form else "N"
-        conexao.merge_evento_mensagem(evento_id, cabecalho, mensagem, rodape, notificarCriador, notificarAprovador)
+        notificarGestor = "S" if gestor_key in request.form else "N"
+        conexao.merge_evento_mensagem(evento_id, cabecalho, mensagem, rodape, notificarCriador, notificarAprovador, notificarGestor)
     
     #flash("Registros atualizados com sucesso.", "success")
     return redirect(url_for("exibir_usuarios"))

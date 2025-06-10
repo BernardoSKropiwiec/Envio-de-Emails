@@ -1,151 +1,149 @@
 import smtplib
-import dto
-import conexao
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from datetime import datetime
 import re
+import sys
 
+from conexao      import SMTPClient
+from datetime     import datetime,date
+from collections  import defaultdict
+from operator     import attrgetter
+from typing       import Iterable, Any
+from conexao      import hana_connection
+from repositories import EventoRepository, UsuarioRepository, BaseRepository, DocFinanRepository
+from dto          import Evento, Usuario, UsuarioEvento, DocFinanceiro
+# --------------------------
+# Configurações de e-mail
+# --------------------------
 smtp_server = 'smtp.office365.com'
 smtp_port = 587
 email_user = 'GIPBOT@trustagrocompany.com'
 email_pass = 'Trust@234'
 
-# Dicionário fixo para mapear departamentos para WtmCode
-departamentos_para_wtm = {
-    "DEP.19": 154,
-    "DEP.20": 154,
-    "DEP.1": 160,
-    "DEP.10": 172,
-    'DEP.4': 155,
-    'DEP.6': 155,
-    'DEP.14': 155,
-    'DEP.21': 155,
-    'DEP.22': 155,
-    'DEP.23': 155,
-    'DEP.7': 155, 
-    'DEP.2': 158,
-    'DEP.17': 159,
-    'DEP.25': 159,
-    'DEP.12': 161,
-    'DEP.15': 161,
-    'DEP.5': 162,
-    'DEP.18': 164,
-    'DEP.11': 165,
-    'DEP.16': 165,
-    'DEP.8': 175,
-    'DEP.3': 175,
-    'DEP.24': 175
-}
+test_email = 'bernardo.kropiwiec@trustagrocompany.com'
 
-def substituir_placeholders(texto, pedido):
-    placeholders = re.findall(r'{(.*?)}', texto)
-    for placeholder in placeholders:
-        if hasattr(pedido, placeholder):
-            valor = getattr(pedido, placeholder)
-            if isinstance(valor, datetime):
-                valor = valor.strftime('%d/%m/%Y')
-            texto = texto.replace(f'{{{placeholder}}}', str(valor))
-    return texto
+# ----------------------------------------
+# Modo teste simples: basta chamar o script com --test ou -t
+# ----------------------------------------
+TEST_MODE = ('--test' in sys.argv) or ('-t' in sys.argv)
+if TEST_MODE:
+    print('[MODO TESTE] Todos os e-mails serão redirecionados para', test_email)
 
-def busca_email_por_usercode(user_code):
-    query = f"""
-    SELECT USER_CODE AS "UserCode",
-           U_NAME    AS "UserName",
-           "E_Mail"  AS "email"
-      FROM "SBOTRUSTAGRO".OUSR    
-    WHERE USER_CODE = '{user_code}'
-    """
-    resultado = conexao.RetornaConsulta(query, dto.Usuario)
-    if resultado and resultado[0].email:
-        return resultado[0].email
-    return None
+def dicionario(agrupador: str, documentos: Iterable[Any]) -> dict[Any, list]:
+    chave = attrgetter(agrupador)          # extrai o atributo em tempo de execução
+    grupos = defaultdict(list)
 
-def busca_aprovadores(WtmCode):
-    query = f"""
-    SELECT OUSR.USER_CODE AS "UserCode"
-      FROM "SBOTRUSTAGRO".OWTM
-      LEFT JOIN "SBOTRUSTAGRO".WTM2 ON OWTM."WtmCode" = WTM2."WtmCode" 
-      LEFT JOIN "SBOTRUSTAGRO".OWST ON WTM2."WstCode" = OWST."WstCode" 
-      LEFT JOIN "SBOTRUSTAGRO".WST1 ON OWST."WstCode" = WST1."WstCode" 
-      LEFT JOIN "SBOTRUSTAGRO".OUSR ON WST1."UserID"  = OUSR.USERID 
-    WHERE OWTM."WtmCode" = '{WtmCode}'
-    """
-    aprovadores = conexao.RetornaConsulta(query, dto.Usuario)
-    return [aprov.UserCode for aprov in aprovadores if aprov.UserCode]
+    for doc in documentos:
+        grupos[chave(doc)].append(doc)     # adiciona ao grupo certo
 
-# Carrega mensagens e usuários selecionados diretamente do banco
-eventos_mensagens = conexao.le_eventos_mensagens()
-usuarios_selecionados = conexao.le_usuarios_selecionados()
-eventos = conexao.busca_eventos()
+    return dict(grupos)     
 
-for evento in eventos:
-    destinatarios = []
-    query_evento = evento.QString
-    pedidos = conexao.RetornaConsulta(query_evento, dto.PedCompraDTO)
-    evento_id_str = str(evento.IntrnalKey)
-    
-    mensagem_evento = eventos_mensagens[evento_id_str]["Mensagem"]
-    cabecalho_db = eventos_mensagens[evento_id_str]["Cabecalho"]
-    rodape_db = eventos_mensagens[evento_id_str]["Rodape"]
-    notificar_criador = eventos_mensagens[evento_id_str]["NotificarCriador"]
-    notificar_aprovador = eventos_mensagens[evento_id_str]["NotificarAprovador"]
-    
-    if pedidos:
-        mensagem = cabecalho_db
-        for pedido in pedidos:
-            mensagem += substituir_placeholders(mensagem_evento, pedido) + "\n\n"
-        mensagem += rodape_db
+class MensagemBuilder:
+    def __init__(self, cabecalho: str, corpo: str, rodape: str):
+        self.cabecalho = cabecalho
+        self.corpo = corpo
+        self.rodape = rodape
 
-        print(mensagem)
+    def substituir_placeholders(self, texto: str, documento):
+        """Substitui placeholders dentro de chaves pelos valores correspondentes de pedido."""
+        placeholders = re.findall(r'{(.*?)}', texto)
+        for placeholder in placeholders:
+            if hasattr(documento, placeholder):
+                valor = getattr(documento, placeholder)
+                if isinstance(valor, (datetime, date)):
+                    valor = valor.strftime('%d/%m/%Y')
+                elif isinstance(valor, (float)):
+                    valor = f"{valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                elif valor is None:
+                    valor = " "  # ou "" se preferir vazio
+                texto = texto.replace(f'{{{placeholder}}}', str(valor))
+        return texto
 
-        # Obtém os destinatários a partir dos usuários selecionados (do banco)
-        if evento_id_str in usuarios_selecionados:
-            destinatarios.extend(usuarios_selecionados[evento_id_str])
+    def construir(self, documentos: list) -> str:
+        texto = self.cabecalho
+        for doc in documentos:
+            texto += self.substituir_placeholders(self.corpo, doc) + "\n\n"
+        texto += self.rodape
+        return texto
 
-        print(destinatarios)
+class MensagemController:
+    def __init__(self, usr_repo:UsuarioRepository, doc_repo:DocFinanRepository, smtp_client:SMTPClient):
+        self.usr_repo = usr_repo
+        self.doc_repo = doc_repo
+        self.smtp = smtp_client
+
+    def processar_evento(self, evento: Evento):
+        documentos = self.doc_repo.documents(evento.QString)
+        if not documentos:
+            print(f"Nenhum documento para o evento {evento.IntrnalKey}")
+            return
+
+        usuarios_evento = self.usr_repo.user_by_event(evento.IntrnalKey)
+        user_codes_evento = {u.UserCode for u in usuarios_evento}
+
+        # Dicionários de destino
+        dict_criadores = dicionario("UserCode", documentos) if evento.NotificarCriador else {}
+        dict_aprovadores = dicionario("CodAprovador", documentos) if evento.NotificarAprovador else {}
+        dict_gestores = dicionario("CodGestor", documentos) if evento.NotificarGestor else {}
+
+        # Remoção de duplicações
+        for code in list(dict_aprovadores):
+            dict_criadores.pop(code, None)
+
+        for code in list(dict_gestores):
+            dict_criadores.pop(code, None)
+
+        for code in user_codes_evento:
+            dict_criadores.pop(code, None)
+            dict_aprovadores.pop(code, None)
+            dict_gestores.pop(code, None)
         
-        if notificar_criador == "S":
-            for pedido in pedidos:
-                criador_email = busca_email_por_usercode(pedido.UserCode)
-                if criador_email and criador_email not in destinatarios:
-                    destinatarios.append(criador_email)
-        
-        if notificar_aprovador == "S":
-            aprovadores_emails = set()
-            wtm_codes_aprovadores = set()
-            for pedido in pedidos:
-                if hasattr(pedido, "Deptos") and pedido.Deptos:
-                    departamentos = [d.strip() for d in pedido.Deptos.split(',') if d.strip()]
-                    for dep in departamentos:
-                        if dep in departamentos_para_wtm:
-                            wtm_codes_aprovadores.add(departamentos_para_wtm[dep])
-            for wtmcode_dep in wtm_codes_aprovadores:
-                aprovadores_usercodes = busca_aprovadores(wtmcode_dep)
-                for user_code in aprovadores_usercodes:
-                    aprovador_email = busca_email_por_usercode(user_code)
-                    if aprovador_email:
-                        aprovadores_emails.add(aprovador_email)
-            for apr_email in aprovadores_emails:
-                if apr_email not in destinatarios:
-                    destinatarios.append(apr_email)
-        
-        if destinatarios:
-            assunto = evento.QName
-            msg = MIMEMultipart()
-            msg['From'] = email_user
-            msg['To'] = ', '.join(destinatarios)
-            msg['Subject'] = assunto
-            msg.attach(MIMEText(mensagem, 'html'))
-            try:
-                with smtplib.SMTP(smtp_server, smtp_port) as server:
-                    server.starttls()
-                    server.login(email_user, email_pass)
-                    server.sendmail(email_user, destinatarios, msg.as_string())
-                print(f"E-mail enviado com sucesso para o evento {evento.IntrnalKey}!")
-            except Exception as e:
-                print(f"Ocorreu um erro ao enviar o e-mail para o evento {evento.IntrnalKey}: {e}")
-        else:
-            print(f"Nenhum destinatário encontrado para o evento {evento.IntrnalKey}.")
-    else:
-        print(f"Nenhum pedido encontrado para o evento {evento.IntrnalKey}.")
+        if evento.IntrnalKey not in [544,541]:
+            dict_criadores.pop('matheus.buzzeti', None)
+            dict_aprovadores.pop('matheus.buzzeti', None)
+            dict_gestores.pop('matheus.buzzeti', None)   
+
+        if evento.NotificarCriador: print(dict_criadores.keys())
+
+        # Builder da mensagem
+        builder = MensagemBuilder(evento.Cabecalho, evento.Mensagem, evento.Rodape)
+
+        # Enviar mensagens personalizadas
+        for grupo, nome in [(dict_criadores, "Criador"), (dict_aprovadores, "Aprovador"), (dict_gestores, "Gestor")]:
+            for user_code, docs in grupo.items():
+                user = self.usr_repo.user_by_code(user_code)
+                if not user or not user.email:
+                    print(f"[AVISO] Usuário não encontrado ou sem e-mail: {user_code}")
+                    continue
+                if user and user.email:
+                    conteudo = builder.construir(docs)
+                    #print(f'Usuario: {user.email}')
+                    #print(f'Assunto: {evento.QName} - {nome} [{evento.IntrnalKey}]')
+                    #print(f'Mensagem: {docs.__len__()}')
+                    self.smtp.send([user.email], f"{evento.QName} - {nome}: {user.UserName}", conteudo)
+
+        # Enviar mensagem única para os usuários comuns
+        if usuarios_evento:
+            emails = [u.email for u in usuarios_evento if u.email]
+            conteudo_comum = builder.construir(documentos)
+            #print(f'Usuarios: {emails}')
+            #print(f'Assunto: {evento.QName} [{evento.IntrnalKey}]')
+            #print(f'Mensagem: {documentos.__len__()}')
+            self.smtp.send(emails, f"{evento.QName}", conteudo_comum)
+
+
+if __name__ == "__main__":
+    with hana_connection() as conn:
+        eventos = EventoRepository(conn).all_eventos()
+        usr_repo = UsuarioRepository(conn)
+        doc_repo = DocFinanRepository(conn)
+        smtp = SMTPClient()
+
+        if '--test' in sys.argv or '-t' in sys.argv:
+            smtp._cfg.test_mode = True
+            print(f"[MODO TESTE] Redirecionando e-mails para {smtp._cfg.test_recipient}")
+
+        controller = MensagemController(usr_repo, doc_repo, smtp)
+
+        for evento in eventos:
+            controller.processar_evento(evento)
+
+

@@ -1,14 +1,65 @@
 import warnings
-from hdbcli import dbapi
-from typing import Type, List, Any
-from dataclasses import fields
 import requests
-from dto import Usuario, Evento
+
+from hdbcli      import dbapi
+import smtplib
+from email.mime.text      import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+from typing      import Type, List, Any, Optional, Tuple
+from dataclasses import fields
+from dto         import Usuario, Evento
+from contextlib  import contextmanager
+from typing      import Generator, Type, List, Any
+
+from config import settings
 
 # Desativa os warnings de HTTPS não verificados (opcional)
 warnings.filterwarnings("ignore", message="Unverified HTTPS request is being made")
 
-# Função auxiliar para obter a conexão (Conexão Única)
+# ──────────────────────────────────────────────
+# 1) DATABASE (SAP HANA)
+# ──────────────────────────────────────────────
+@contextmanager
+def hana_connection() -> Generator[dbapi.Connection, None, None]:
+    conn = dbapi.connect(
+        address=settings.db.host,
+        port=settings.db.port,
+        user=settings.db.user,
+        password=settings.db.password,
+        currentSchema = 'SBOTRUSTAGRO',    
+    )
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+class HanaRepository:
+    """Métodos comuns de acesso a dados via cursor."""
+    def __init__(self, conn: dbapi.Connection):
+        self._conn = conn
+
+    def _query(
+        self,
+        sql: str,
+        dto_cls: Type,
+        params: Optional[Tuple[Any, ...]] = None   # ← novo argumento
+    ) -> List[Any]:
+        cur = self._conn.cursor()
+        # se params for None executa direto; senão faz o binding seguro
+        cur.execute(sql, params) if params else cur.execute(sql)
+        cols        = [c[0] for c in cur.description]
+        dto_fields  = {f.name for f in fields(dto_cls)}
+        rows: List[Any] = []
+
+        for r in cur.fetchall():
+            rows.append(
+                dto_cls(**{col: r[i] if col in dto_fields else None
+                           for i, col in enumerate(cols)})
+            )
+        cur.close()
+        return rows
+    
 def get_connection():
     return dbapi.connect(
         address="saphamultifazendas",   
@@ -16,6 +67,7 @@ def get_connection():
         user="B1ADMIN", 
         password="#xGCba!6e0YvK7*"
     )
+
 
 def RetornaConsulta(query, dto_class: Type) -> List[Any]:
     results = []
@@ -52,33 +104,9 @@ def LogaServiceLayer(username, password, company_db):
     except requests.RequestException as e:
         print(f"Erro ao autenticar no Service Layer: {e}")
         return None
-
-def busca_usuarios(session_id):
-    users_url = "https://saphamultifazendas:50000/b1s/v1/Users?$select=UserCode,UserName,eMail,Superuser,MobilePhoneNumber&$filter=eMail ne null and eMail ne ''&$top=80"
-    headers = {
-        "Cookie": f"B1SESSION={session_id}",
-        "Content-Type": "application/json"
-    }
-    try:
-        response = requests.get(users_url, headers=headers, verify=False)
-        response.raise_for_status()
-        users_data = response.json().get("value", [])
-        usuarios = [
-            Usuario(
-                UserCode=user["UserCode"],
-                UserName=user["UserName"],
-                Superuser=user["Superuser"],
-                email=user.get("eMail", ""),
-                telefone=user.get("MobilePhoneNumber", 0)
-            )
-            for user in users_data
-        ]
-        return usuarios
-    except requests.RequestException as e:
-        print(f"Erro ao buscar usuários: {e}")
-        return []
-
-def busca_todos_usuarios(session_id):
+    
+'''
+def busca_todos_usuarios(session_id):   #Trocar por consulta em banco
     base_url = "https://saphamultifazendas:50000/b1s/v1/Users?$select=UserCode,UserName,eMail,Superuser,MobilePhoneNumber"
     headers = {
         "Cookie": f"B1SESSION={session_id}",
@@ -110,22 +138,6 @@ def busca_todos_usuarios(session_id):
             break
     return usuarios
 
-def verifica_superuser(session_id, username):
-    users_url = f"https://saphamultifazendas:50000/b1s/v1/Users?$filter=UserName eq '{username}'&$select=Superuser"
-    headers = {
-        "Cookie": f"B1SESSION={session_id}",
-        "Content-Type": "application/json"
-    }
-    try:
-        response = requests.get(users_url, headers=headers, verify=False)
-        response.raise_for_status()
-        data = response.json().get("value", [])
-        if data and data[0]["Superuser"] == "Y":
-            return True
-    except requests.RequestException as e:
-        print(f"Erro ao verificar Superuser: {e}")
-    return False
-
 def busca_eventos() -> List[Evento]:
     query = """
         SELECT "IntrnalKey",
@@ -137,8 +149,6 @@ def busca_eventos() -> List[Evento]:
         WHERE "CategoryId" = 27
     """
     return RetornaConsulta(query, Evento)
-
-# Funções de leitura dos registros das tabelas de configuração
 
 def le_usuarios_selecionados():
     selecoes = {}
@@ -176,6 +186,35 @@ def le_eventos_mensagens():
     except Exception as e:
         print("Erro ao ler EVENTOS_MENSAGENS:", e)
     return eventos_mensagens
+'''
+
+# ──────────────────────────────────────────────
+# 3) EMAIL CLIENT
+# ──────────────────────────────────────────────
+class SMTPClient:
+    def __init__(self, cfg=settings.smtp):
+        self._cfg = cfg
+
+    def _build_message(self, to_: list[str], subject: str,
+                       html_body: str) -> MIMEMultipart:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"] = self._cfg.user
+        msg["To"] = ",".join(to_)
+        msg.attach(MIMEText(html_body, "html", "utf-8"))
+        return msg
+
+    def send(self, recipients: list[str], subject: str,
+             html_body: str) -> None:
+        if self._cfg.test_mode:
+            recipients = [self._cfg.test_recipient]
+
+        message = self._build_message(recipients, subject, html_body)
+
+        with smtplib.SMTP(self._cfg.server, self._cfg.port) as srv:
+            srv.starttls()
+            srv.login(self._cfg.user, self._cfg.password)
+            srv.sendmail(self._cfg.user, recipients, message.as_string())
 
 # Funções de Upsert (Merge) nas tabelas de configuração
 
@@ -210,13 +249,12 @@ def merge_usuario_selecionado(evento, usercode, email, flag):
     except Exception as e:
         print("Erro ao fazer merge em USUARIOS_SELECIONADOS:", e)
 
-
-
-def merge_evento_mensagem(intrnalKey, cabecalho, mensagem, rodape, notificarCriador, notificarAprovador):
+def merge_evento_mensagem(intrnalKey, cabecalho, mensagem, rodape, notificarCriador, notificarAprovador, notificarGestor):
     try:
         # Converte "S"/"N" para booleanos True/False, se necessário
         notificarCriador_bool = True if notificarCriador == "S" else False
         notificarAprovador_bool = True if notificarAprovador == "S" else False
+        notificarGestor_bool = True if notificarGestor == "S" else False
 
         conn = get_connection()
         cursor = conn.cursor()
@@ -229,7 +267,8 @@ def merge_evento_mensagem(intrnalKey, cabecalho, mensagem, rodape, notificarCria
                 CAST(? AS NCLOB) AS "Mensagem", 
                 CAST(? AS NCLOB) AS "Rodape", 
                 CAST(? AS BOOLEAN) AS "NotificarCriador", 
-                CAST(? AS BOOLEAN) AS "NotificarAprovador"
+                CAST(? AS BOOLEAN) AS "NotificarAprovador",
+                CAST(? AS BOOLEAN) AS "NotificarGestor"
             FROM DUMMY
         ) src
         ON target."IntrnalKey" = src."IntrnalKey"
@@ -238,17 +277,20 @@ def merge_evento_mensagem(intrnalKey, cabecalho, mensagem, rodape, notificarCria
                        "Mensagem" = src."Mensagem",
                        "Rodape" = src."Rodape",
                        "NotificarCriador" = src."NotificarCriador",
-                       "NotificarAprovador" = src."NotificarAprovador"
+                       "NotificarAprovador" = src."NotificarAprovador",
+                       "NotificarGestor" = src."NotificarAprovador"
         WHEN NOT MATCHED THEN 
-            INSERT ("IntrnalKey", "Cabecalho", "Mensagem", "Rodape", "NotificarCriador", "NotificarAprovador")
-            VALUES (src."IntrnalKey", src."Cabecalho", src."Mensagem", src."Rodape", src."NotificarCriador", src."NotificarAprovador")
+            INSERT ("IntrnalKey", "Cabecalho", "Mensagem", "Rodape", "NotificarCriador", "NotificarAprovador","NotificarGestor")
+            VALUES (src."IntrnalKey", src."Cabecalho", src."Mensagem", src."Rodape", src."NotificarCriador", src."NotificarAprovador",src."NotificarGestor")
         '''
         #print(f"[DEBUG] Merge Evento Mensagem: IntrnalKey={intrnalKey}, Cabecalho={cabecalho}, Mensagem={mensagem}, Rodape={rodape}, NotificarCriador={notificarCriador}, NotificarAprovador={notificarAprovador}")
-        cursor.execute(merge_query, (intrnalKey, cabecalho, mensagem, rodape, notificarCriador_bool, notificarAprovador_bool))
+        cursor.execute(merge_query, (intrnalKey, cabecalho, mensagem, rodape, notificarCriador_bool, notificarAprovador_bool, notificarGestor_bool))
         conn.commit()
         print(f"[DEBUG] Linhas afetadas (evento mensagem): {cursor.rowcount}")
         cursor.close()
         conn.close()
     except Exception as e:
         print("Erro ao fazer merge em EVENTOS_MENSAGENS:", e)
+
+
 

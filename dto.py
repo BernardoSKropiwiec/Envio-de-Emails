@@ -2,45 +2,36 @@ from dataclasses import dataclass
 from datetime import datetime, date
 
 @dataclass
-class PedCompraDTO:
-    DocEntry: int         
-    DocNum: int           
-    CreateDate: datetime         
-    UserCode: str    
-    UserName: str    
-    DocTotal: float
-    DocDate: date
-    DocDueDate: date
-    BPLId: int
-    BPLName: str
-    CardCode: str   
-    CardName: str
-    Deptos: str
-    Comments:str
-    ItemCode: str
-    ItemName: str
+class DocFinanceiro:
+    DocEntry:      int | None = None
+    DocNum:        int | None = None
+    ObjType:       str | None = None
+    ObjDesc:       str | None = None
+    CreateDate:    datetime | None = None
+    UserCode:      str | None = None
+    UserName:      str | None = None
+    DocTotal:      float | None = None
+    DocDate:       date | None = None
+    DocDueDate:    date | None = None
+    BPLId:         int | None = None
+    BPLName:       str | None = None
+    CardCode:      str | None = None
+    CardName:      str | None = None
+    DocStatus:      str | None = None
+    Deptos:        str | None = None
+    Comments:      str | None = None
+    ItemCode:      str | None = None
+    ItemName:      str | None = None
+    CodAprovador:  str | None = None
+    CodGestor:     str | None = None
+    ResObjDesc:    str | None = None
+    ResDocNum:     int | None = None
+    ResDocStatus:  str | None = None
+    Adtos:         str | None = None
+    SttsAdtos:     str | None = None
+    ResDocTotal:   float | None = None
 
-@dataclass
-class NFEntradaDTO:
-    DocEntry: int         
-    DocNum: int           
-    CreateDate: datetime         
-    UserCode: str       
-    DocTotal: float
-    DocDate: date
-    DocDueDate: date
-    BPLId: int
-    BPLName: str  
-    ItemCode: str
-    ItemName: str
-
-
-@dataclass
-class SolCompraDTO:
-    DocEntry: int         
-    DocNum: int           
-    CreateDate: datetime         
-    UserCode: str      
+   
 
 @dataclass 
 class Usuario:
@@ -50,16 +41,27 @@ class Usuario:
     email: str
     telefone: int
 
-@dataclass
+@dataclass #Usado para USUARIOS_SELECIONADOS
+class UsuarioEvento(Usuario):
+    Evento: str          
+
+@dataclass()   
 class Evento:
     IntrnalKey: int
     QCategory: int
     QName: str
     QString: str
-    NotifUsuario:str
-    NofifAprovador:str
-
-
-
+    Cabecalho: str
+    Mensagem: str
+    Rodape: str 
+    NotificarCriador: bool     
+    NotificarAprovador: bool
+    NotificarGestor: bool
+'''
+    def __post_init__(self) -> None: #Converte para boolean
+        self.NotificarCriador   = str(self.NotificarCriador).upper() == "S"
+        self.NotificarAprovador = str(self.NotificarAprovador).upper() == "S"
+        self.NotificarGestor = str(self.NotificarGestor).upper() == "S"
+'''
 # Exemplo de como instanciar a classe
 # requisicao_compra = PurchaseRequestDTO(DocEntry=1, DocNum=1001, DocDate=date.today(), UserSign="USR123")

@@ -7,6 +7,8 @@ __pycache__/
 instance/
 *.db
 *.log
+teste-conexao.py
+teste-main.py
 
 # 📦 Ignorar ambientes virtuais
 .venv/
