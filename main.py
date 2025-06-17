@@ -15,10 +15,10 @@ from dto          import Evento, Usuario, UsuarioEvento, DocFinanceiro
 # --------------------------
 smtp_server = 'smtp.office365.com'
 smtp_port = 587
-email_user = 'GIPBOT@trustagrocompany.com'
-email_pass = 'Trust@234'
+email_user = '--'
+email_pass = '--'
 
-test_email = 'bernardo.kropiwiec@trustagrocompany.com'
+test_email = '--'
 
 # ----------------------------------------
 # Modo teste simples: basta chamar o script com --test ou -t

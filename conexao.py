@@ -64,8 +64,8 @@ def get_connection():
     return dbapi.connect(
         address="saphamultifazendas",   
         port=30015,          
-        user="B1ADMIN", 
-        password="#xGCba!6e0YvK7*"
+        user="--", 
+        password="--"
     )
 
 
@@ -91,7 +91,7 @@ def RetornaConsulta(query, dto_class: Type) -> List[Any]:
     return results
 
 def LogaServiceLayer(username, password, company_db):
-    login_url = "https://saphamultifazendas:50000/b1s/v1/Login"
+    login_url = "--"
     payload = {
         "CompanyDB": company_db,
         "Password": password,
@@ -105,88 +105,6 @@ def LogaServiceLayer(username, password, company_db):
         print(f"Erro ao autenticar no Service Layer: {e}")
         return None
     
-'''
-def busca_todos_usuarios(session_id):   #Trocar por consulta em banco
-    base_url = "https://saphamultifazendas:50000/b1s/v1/Users?$select=UserCode,UserName,eMail,Superuser,MobilePhoneNumber"
-    headers = {
-        "Cookie": f"B1SESSION={session_id}",
-        "Content-Type": "application/json"
-    }
-    usuarios = []
-    url = base_url
-    while url:
-        try:
-            response = requests.get(url, headers=headers, verify=False)
-            response.raise_for_status()
-            data = response.json()
-            users_data = data.get("value", [])
-            usuarios.extend([
-                Usuario(
-                    UserCode=user["UserCode"],
-                    UserName=user["UserName"],
-                    Superuser=user["Superuser"],
-                    email=user.get("eMail", ""),
-                    telefone=user.get("MobilePhoneNumber", 0)
-                )
-                for user in users_data
-            ])
-            url = data.get("odata.nextLink")
-            if url:
-                url = f"https://saphamultifazendas:50000/b1s/v1/{url}"
-        except requests.RequestException as e:
-            print(f"Erro ao buscar usuários: {e}")
-            break
-    return usuarios
-
-def busca_eventos() -> List[Evento]:
-    query = """
-        SELECT "IntrnalKey",
-               "QCategory",
-               "QName",
-               "QString"
-        FROM "SBOTRUSTAGRO".OUQR 
-        INNER JOIN "SBOTRUSTAGRO".OQCN ON OUQR."QCategory" = OQCN."CategoryId" 
-        WHERE "CategoryId" = 27
-    """
-    return RetornaConsulta(query, Evento)
-
-def le_usuarios_selecionados():
-    selecoes = {}
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute('SELECT "Evento", "UserCode", "Email" FROM "SBOTRUSTAGRO"."USUARIOS_SELECIONADOS"')
-        for row in cursor.fetchall():
-            evento = str(row[0])
-            if evento not in selecoes:
-                selecoes[evento] = []
-            selecoes[evento].append(row[2])
-        cursor.close()
-        conn.close()
-    except Exception as e:
-        print("Erro ao ler USUARIOS_SELECIONADOS:", e)
-    return selecoes
-
-def le_eventos_mensagens():
-    eventos_mensagens = {}
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute('SELECT "IntrnalKey","Cabecalho", "Mensagem", "Rodape", "NotificarCriador", "NotificarAprovador" FROM "SBOTRUSTAGRO"."EVENTOS_MENSAGENS"')
-        for row in cursor.fetchall():
-            eventos_mensagens[str(row[0])] = {
-                "Cabecalho": row[1],
-                "Mensagem": row[2],
-                "Rodape": row[3],
-                "NotificarCriador": row[4],
-                "NotificarAprovador": row[5]
-            }
-        cursor.close()
-        conn.close()
-    except Exception as e:
-        print("Erro ao ler EVENTOS_MENSAGENS:", e)
-    return eventos_mensagens
-'''
 
 # ──────────────────────────────────────────────
 # 3) EMAIL CLIENT
