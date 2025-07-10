@@ -139,6 +139,6 @@ Para cada evento SAP:
 
 ## 🧑‍💻 Autor
 
-Desenvolvido por [TrustAgro Company] para automação de comunicação SAP.
+Desenvolvido por Bernardo da Silva Kropiwiec para automação de comunicação SAP na TrustAgro Company.
 
 ---
